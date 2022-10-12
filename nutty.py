@@ -48,6 +48,12 @@ class Instr(Enum):
     fence_i = auto()
     ecall = auto()
     ebreak = auto()
+    csrrw = auto()
+    csrrs = auto()
+    csrrc = auto()
+    csrrwi = auto()
+    csrrsi = auto()
+    csrrci = auto()
 
 class Opcode(Enum):
     Lui    = 0b0110111
@@ -60,7 +66,7 @@ class Opcode(Enum):
     OpImm  = 0b0010011
     Op     = 0b0110011
     Fence  = 0b0001111
-    Env    = 0b1110011
+    System = 0b1110011
 
 opcode_format_map = {
     Opcode.Lui:    'U',
@@ -73,7 +79,7 @@ opcode_format_map = {
     Opcode.OpImm:  'I',
     Opcode.Op:     'R',
     Opcode.Fence:  'I',
-    Opcode.Env:    'I',
+    Opcode.System: 'I',
 }
 
 # map hell, someone please help me.
@@ -128,6 +134,12 @@ funct_instr_map = {
     # FIXME: wtf, these two have same encoding
     #(Opcode.Env,    0b000):   Instr.ecall,
     #(Opcode.Env,    0b000):   Instr.ebreak,
+    (Opcode.System, 0b001):   Instr.csrrw,
+    (Opcode.System, 0b010):   Instr.csrrs,
+    (Opcode.System, 0b011):   Instr.csrrc,
+    (Opcode.System, 0b101):   Instr.csrrwi,
+    (Opcode.System, 0b110):   Instr.csrrsi,
+    (Opcode.System, 0b111):   Instr.csrrci,
 }
 
 instrs = (
@@ -170,8 +182,14 @@ instrs = (
     (Instr.bitwise_and,  'R', Opcode.Op),
     (Instr.fence,   'I', Opcode.Fence),
     (Instr.fence_i, 'I', Opcode.Fence),
-    (Instr.ecall,   'I', Opcode.Env),
-    (Instr.ebreak,  'I', Opcode.Env),
+    (Instr.ecall,   'I', Opcode.System),
+    (Instr.ebreak,  'I', Opcode.System),
+    (Instr.csrrw,   'I', Opcode.System),
+    (Instr.csrrs,   'I', Opcode.System),
+    (Instr.csrrc,   'I', Opcode.System),
+    (Instr.csrrwi,  'I', Opcode.System),
+    (Instr.csrrsi,  'I', Opcode.System),
+    (Instr.csrrci,  'I', Opcode.System),
 )
 
 def sign_ext(x: int, signed: bool, sign_pos: int) -> int:
@@ -257,6 +275,16 @@ def decode(I: int):
             instr = Instr.srl
         elif upper == 0b010000:
             instr = Instr.sra
+        else:
+            assert False
+    elif opcode == Opcode.Op and funct == 0b000:
+        upper = ex(I, 31, 20)
+        if upper == 1:
+            instr = Instr.ebreak
+        elif upper == 0:
+            instr = Instr.ecall
+        else:
+            assert False
     else:
         instr = funct_instr_map[(opcode, funct)] # type: ignore
 
@@ -270,7 +298,7 @@ def decode(I: int):
     if fmt != 'R':
         print('0x{:x}'.format(imm))
 
-    return (instr, imm, rs1, rs2, rd)
+    return (instr, opcode, imm, rs1, rs2, rd)
 
 def trunc(x: int) -> int:
     return x & 0xffffffff
@@ -298,7 +326,12 @@ def interpret_inst() -> bool:
         return False
 
     # instruction decode
-    (instr, imm, rs1, rs2, rd) = decode(I)
+    (instr, opcode, imm, rs1, rs2, rd) = decode(I)
+
+    # nah, skip system opcodes
+    if opcode == Opcode.System:
+        pc += 4
+        return True
 
     # instruction execute
     changed_pc = False
