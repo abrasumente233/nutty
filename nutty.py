@@ -205,9 +205,7 @@ def to_signed(x: int) -> int:
 
 # FIXME: rs1, rs2, rd, funct can be meaningless for certain
 #        instruction format.
-def decode(pc: int):
-    I = mem[pc] | (mem[pc + 1] << 8) | (mem[pc + 2] << 16) | \
-        (mem[pc + 3] << 24)
+def decode(I: int):
 
     opcode = Opcode(I & 0b1111111)
     rs1 = (I >> 15) & 0b11111
@@ -277,10 +275,23 @@ def sra(x,n,m):
 
 # FIXME: make sure x0 is always 0
 # interpret an instruction
-def interpret_inst():
-    # instruction decode
+def interpret_inst() -> bool:
     global pc
-    (instr, opcode, imm, rs1, rs2, rd) = decode(pc)
+
+    # instruction fetch
+    I = mem[pc] | (mem[pc + 1] << 8) | (mem[pc + 2] << 16) | \
+        (mem[pc + 3] << 24)
+
+    # stop running when we hit zero instruction
+    if I == 0:
+        return False
+
+    # instruction decode
+    (instr, opcode, imm, rs1, rs2, rd) = decode(I)
+
+
+    # instruction execute
+    changed_pc = False
 
     if instr == Instr.lui:
         x[rd] = imm
@@ -289,28 +300,36 @@ def interpret_inst():
     elif instr == Instr.jal:
         x[rd] = pc + 4
         pc += imm # TODO: make sure imm is right
+        changed_pc = True
     elif instr == Instr.jalr:
         t = pc + 4
         pc = (x[rs1] + imm) & ~1
+        changed_pc = True
         x[rd] = t
     elif instr == Instr.beq:
         if x[rs1] == x[rs2]:
             pc += imm
+            changed_pc = True
     elif instr == Instr.bne:
         if x[rs1] != x[rs2]:
             pc += imm
+            changed_pc = True
     elif instr == Instr.blt:
         if to_signed(x[rs1]) < to_signed(x[rs2]):
             pc += imm
+            changed_pc = True
     elif instr == Instr.bge:
         if to_signed(x[rs1]) >= to_signed(x[rs2]):
             pc += imm
+            changed_pc = True
     elif instr == Instr.bltu:
         if x[rs1] < x[rs2]:
             pc += imm
+            changed_pc = True
     elif instr == Instr.bgeu:
         if x[rs1] >= x[rs2]:
             pc += imm
+            changed_pc = True
     elif instr == Instr.lb:
         x[rd] = sign_ext_32(mem[x[rs1] + imm], 7)
     elif instr == Instr.lh:
@@ -383,6 +402,11 @@ def interpret_inst():
         x[rd] = x[rs1] & x[rs2]
     else:
         raise Exception("Illegal instruction")
+
+    if not changed_pc:
+        pc += 4
+
+    return True
     
 def load_prog(filename: str):
     p = 0
@@ -394,28 +418,12 @@ def load_prog(filename: str):
             byte = f.read(1)
 
 def run():
-    while True:
-        interpret_inst()
+    while interpret_inst():
+        pass
+    print('Execution ended')
 
 if __name__ == '__main__':
     load_prog("simple.bin")
 
+    run()
     print(x[8])
-    interpret_inst()
-    pc += 4
-
-    print(x[8])
-    interpret_inst()
-    pc += 4
-
-    print(x[8])
-    interpret_inst()
-    pc += 4
-
-    print(x[8])
-    interpret_inst()
-    pc += 4
-
-    print(x[8])
-
-    print('Hello')
