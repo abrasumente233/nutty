@@ -111,8 +111,6 @@ funct_instr_map = {
     (Opcode.OpImm,  0b110):   Instr.ori,
     (Opcode.OpImm,  0b111):   Instr.andi,
     (Opcode.OpImm,  0b001):   Instr.slli,
-    #(Opcode.OpImm,  0b101):   Instr.srli,
-    #(Opcode.OpImm,  0b101):   Instr.srai, # FIXME!!: determined by upper bits too!
 
     # FIXME: Assert upper 8 bits
     (Opcode.Op,     0b000):   Instr.add,
@@ -121,8 +119,6 @@ funct_instr_map = {
     (Opcode.Op,     0b010):   Instr.slt,
     (Opcode.Op,     0b011):   Instr.sltu,
     (Opcode.Op,     0b100):   Instr.xor,
-    #(Opcode.Op,     0b101):   Instr.srl,
-    #(Opcode.Op,     0b101):   Instr.sra,
     (Opcode.Op,     0b110):   Instr.bitwise_or,
     (Opcode.Op,     0b111):   Instr.bitwise_and,
 
@@ -190,13 +186,16 @@ def sign_ext_32(x: int, sign_pos: int) -> int:
 
     return x
 
-# extract bits and shift right `to_low` bits
-def ex(bits: int, high: int, low: int, to_low: int):
+# extract bits
+def ex(bits: int, high: int, low: int) -> int:
     bits = bits >> low
     length = high - low + 1
-    mask = sum([2**i for i in range(length)])
-    bits &= mask
-    return bits << to_low
+    mask = (1 << length) - 1
+    return bits & mask
+
+# extract inplace: extract bits and shift right `to_low` bits
+def exip(bits: int, high: int, low: int, to_low: int) -> int:
+    return ex(bits, high, low) << to_low
 
 def to_signed(x: int) -> int:
     signed = x >> 31
@@ -207,59 +206,71 @@ def to_signed(x: int) -> int:
 #        instruction format.
 def decode(I: int):
 
-    opcode = Opcode(I & 0b1111111)
-    rs1 = (I >> 15) & 0b11111
-    rs2 = (I >> 20) & 0b11111
-    rd = (I >> 7) & 0b11111
+    opcode = Opcode(ex(I, 6, 0))
+    rs1 = ex(I, 19, 15)
+    rs2 = ex(I, 24, 20)
+    rd  = ex(I, 11, 7)
 
     if opcode in (Opcode.Lui, Opcode.Auipc, Opcode.Jal):
         funct = None
     else:
-        funct = (I >> 12) & 0b111 # FIXME: U and J doesn't have funct
+        funct = ex(I, 14, 12)
 
     # decode immediate
     fmt = opcode_format_map[opcode]
     sign_bit = (I >> 31) == 1
     imm = None
     if fmt == 'I':
-        imm = sign_ext(ex(I, 30, 20, 0), sign_bit, 11)
+        imm = sign_ext(exip(I, 30, 20, 0), sign_bit, 11)
     elif fmt == 'S':
-        imm = sign_ext(ex(I, 11, 7, 0) | ex(I, 30, 25, 5), sign_bit, 11)
+        imm = sign_ext(exip(I, 11, 7, 0) | exip(I, 30, 25, 5), sign_bit, 11)
     elif fmt == 'B':
-        imm = sign_ext(ex(I, 7, 7, 11) | ex(I, 30, 25, 5) | ex(I, 11, 8, 1), sign_bit, 12)
+        imm = sign_ext(exip(I, 7, 7, 11) | exip(I, 30, 25, 5) | exip(I, 11, 8, 1), sign_bit, 12)
     elif fmt == 'U':
         imm = I & 0xfffff000
     elif fmt == 'J':
-        imm = sign_ext(ex(I, 30, 21, 1) | ex(I, 20, 20, 11) | ex(I, 19, 12, 12), sign_bit, 20)
+        imm = sign_ext(exip(I, 30, 21, 1) | exip(I, 20, 20, 11) | exip(I, 19, 12, 12), sign_bit, 20)
     elif fmt == 'R':
         imm = None
     else:
         raise Exception("unreachable")
 
     instr = None
-    upper = I >> 24
+    upper = ex(I, 31, 26)
     if opcode == Opcode.OpImm and funct == 0b101:
-        if upper == 0b00000000:
+        if upper == 0b000000:
             instr = Instr.srli
-        elif upper == 0b01000000:
+        elif upper == 0b010000:
             instr = Instr.srai
-            imm &= 0x1f
+            imm &= 0x1f # type: ignore
+        else:
+            assert False
     elif opcode == Opcode.Op and funct == 0b000:
-        if upper == 0b00000000:
+        if upper == 0b000000:
             instr = Instr.add
-        elif upper == 0b01000000:
+        elif upper == 0b010000:
             instr = Instr.sub
+        else:
+            assert False
     elif opcode == Opcode.Op and funct == 0b101:
-        if upper == 0b00000000:
+        if upper == 0b000000:
             instr = Instr.srl
-        elif upper == 0b01000000:
+        elif upper == 0b010000:
             instr = Instr.sra
     else:
-        instr = funct_instr_map[(opcode, funct)]
+        instr = funct_instr_map[(opcode, funct)] # type: ignore
 
-    print("{}, (r{}, r{}, {}) -> r{}".format(instr, rs1, rs2, imm, rd))
+    print('0x{:08x}\t{}'.format(pc, str(instr)[6:]), end='\t')
+    if fmt in ('R', 'I', 'U', 'J'):
+        print('r{}\t'.format(rd), end='')
+    if fmt in ('R', 'I', 'S', 'B'):
+        print('r{}\t'.format(rs1), end='')
+    if fmt in ('R', 'S', 'B'):
+        print('r{}\t'.format(rs2), end='')
+    if fmt != 'R':
+        print('0x{:x}'.format(imm))
 
-    return (instr, opcode, imm, rs1, rs2, rd)
+    return (instr, imm, rs1, rs2, rd)
 
 def trunc(x: int) -> int:
     return x & 0xffffffff
@@ -287,8 +298,7 @@ def interpret_inst() -> bool:
         return False
 
     # instruction decode
-    (instr, opcode, imm, rs1, rs2, rd) = decode(I)
-
+    (instr, imm, rs1, rs2, rd) = decode(I)
 
     # instruction execute
     changed_pc = False
@@ -417,13 +427,19 @@ def load_prog(filename: str):
             p += 1
             byte = f.read(1)
 
+def dump():
+    print('{: <3}: 0x{:08x}  '.format('pc', pc))
+    for i in range(32):
+        print('{: <3}: 0x{:08x}  '.format('r' + str(i), x[i]), end='')
+        if (i - 3) % 4 == 0:
+            print()
+
 def run():
     while interpret_inst():
         pass
-    print('Execution ended')
 
 if __name__ == '__main__':
     load_prog("simple.bin")
 
     run()
-    print(x[8])
+    dump()
