@@ -2,7 +2,7 @@
 
 from enum import Enum, auto
 
-mem = [0] * 1024 # 1 KiB of memory
+mem = [0] * 1024 * 1024 # 1 MiB of memory
 x = [0] * 32 # registers
 pc = 0
 
@@ -53,8 +53,8 @@ class Opcode(Enum):
     Lui    = 0b0110111
     Auipc  = 0b0010111
     Jal    = 0b1101111
-    Jalr   = 0b1101111
-    Branch = 0b1101111
+    Jalr   = 0b1100111
+    Branch = 0b1100011
     Load   = 0b0000011
     Store  = 0b0100011
     OpImm  = 0b0010011
@@ -217,6 +217,7 @@ def decode(I: int):
         funct = ex(I, 14, 12)
 
     # decode immediate
+    print(opcode)
     fmt = opcode_format_map[opcode]
     sign_bit = (I >> 31) == 1
     imm = None
@@ -229,6 +230,7 @@ def decode(I: int):
     elif fmt == 'U':
         imm = I & 0xfffff000
     elif fmt == 'J':
+        print('come here')
         imm = sign_ext(exip(I, 30, 21, 1) | exip(I, 20, 20, 11) | exip(I, 19, 12, 12), sign_bit, 20)
     elif fmt == 'R':
         imm = None
