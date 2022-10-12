@@ -217,7 +217,6 @@ def decode(I: int):
         funct = ex(I, 14, 12)
 
     # decode immediate
-    print(opcode)
     fmt = opcode_format_map[opcode]
     sign_bit = (I >> 31) == 1
     imm = None
@@ -230,7 +229,6 @@ def decode(I: int):
     elif fmt == 'U':
         imm = I & 0xfffff000
     elif fmt == 'J':
-        print('come here')
         imm = sign_ext(exip(I, 30, 21, 1) | exip(I, 20, 20, 11) | exip(I, 19, 12, 12), sign_bit, 20)
     elif fmt == 'R':
         imm = None
@@ -308,67 +306,67 @@ def interpret_inst() -> bool:
     if instr == Instr.lui:
         x[rd] = imm
     elif instr == Instr.auipc:
-        x[rd] = pc + imm
+        x[rd] = trunc(pc + imm)
     elif instr == Instr.jal:
         x[rd] = pc + 4
-        pc += imm # TODO: make sure imm is right
+        pc = trunc(pc + imm) # TODO: make sure imm is right
         changed_pc = True
     elif instr == Instr.jalr:
         t = pc + 4
-        pc = (x[rs1] + imm) & ~1
+        pc = trunc(x[rs1] + imm) & ~1
         changed_pc = True
         x[rd] = t
     elif instr == Instr.beq:
         if x[rs1] == x[rs2]:
-            pc += imm
+            pc = trunc(pc + imm)
             changed_pc = True
     elif instr == Instr.bne:
         if x[rs1] != x[rs2]:
-            pc += imm
+            pc = trunc(pc + imm)
             changed_pc = True
     elif instr == Instr.blt:
         if to_signed(x[rs1]) < to_signed(x[rs2]):
-            pc += imm
+            pc = trunc(pc + imm)
             changed_pc = True
     elif instr == Instr.bge:
         if to_signed(x[rs1]) >= to_signed(x[rs2]):
-            pc += imm
+            pc = trunc(pc + imm)
             changed_pc = True
     elif instr == Instr.bltu:
         if x[rs1] < x[rs2]:
-            pc += imm
+            pc = trunc(pc + imm)
             changed_pc = True
     elif instr == Instr.bgeu:
         if x[rs1] >= x[rs2]:
-            pc += imm
+            pc = trunc(pc + imm)
             changed_pc = True
     elif instr == Instr.lb:
-        x[rd] = sign_ext_32(mem[x[rs1] + imm], 7)
+        x[rd] = sign_ext_32(mem[trunc(x[rs1] + imm)], 7)
     elif instr == Instr.lh:
-        off = x[rs1] + imm
+        off = trunc(x[rs1] + imm)
         data = mem[off] | (mem[off + 1] << 8) # little endian
         x[rd] = sign_ext_32(data, 15)
     elif instr == Instr.lw:
-        off = x[rs1] + imm
+        off = trunc(x[rs1] + imm)
         data = mem[off] | (mem[off + 1] << 8) | (mem[off + 2] << 16) | (mem[off + 3] << 24)
         x[rd] = data
     elif instr == Instr.lbu:
-        x[rd] = mem[x[rs1] + imm]
+        x[rd] = mem[trunc(x[rs1] + imm)]
     elif instr == Instr.lhu:
-        off = x[rs1] + imm
+        off = trunc(x[rs1] + imm)
         data = mem[off] | (mem[off + 1] << 8) # little endian
         x[rd] = data
     elif instr == Instr.sb:
-        off = x[rs1] + imm
+        off = trunc(x[rs1] + imm)
         data = x[rs2] & 0xff
         mem[off] = data
     elif instr == Instr.sh:
-        off = x[rs1] + imm
+        off = trunc(x[rs1] + imm)
         data = x[rs2] & 0xff
         mem[off]     =  x[rs2]       & 0xff
         mem[off + 1] = (x[rs2] >> 8) & 0xff
     elif instr == Instr.sw:
-        off = x[rs1] + imm
+        off = trunc(x[rs1] + imm)
         data = x[rs2] & 0xff
         mem[off]     =  x[rs2]        & 0xff
         mem[off + 1] = (x[rs2] >> 8)  & 0xff
@@ -437,8 +435,11 @@ def dump():
             print()
 
 def run():
+    max_step = 100
     while interpret_inst():
-        pass
+        max_step -= 1
+        if max_step == 0:
+            break
 
 if __name__ == '__main__':
     load_prog("simple.bin")
